@@ -26,8 +26,8 @@
     (dipped into water) and never more than 3350 (out in the air).
   
   - during testing, the moisture sensor returned a value of ... for a soil
-    considered fine, a value of 2800 for a soil considered dry, a value of ...
-    for a soil considered very dry, and a value of ... for a soil considered
+    considered fine, a value of 2800 for a soil considered dry, a value of 3250
+    for a soil considered very dry, and a value of 1350 for a soil considered
     very wet. 
 
   - The DEBUG_MODE constant allows the user to see debug traces. To do so the
