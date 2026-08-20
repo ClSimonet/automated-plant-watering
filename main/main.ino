@@ -30,42 +30,151 @@
     for a soil considered very dry, and a value of ... for a soil considered
     very wet. 
 
-  - The DEBUG_MODE constant allows the user to see debug traces. To do so the
-    user must uncomment the "//#define DEBUG_MODE" line below in the
-    "Constant definitions" section and open the serial port at 9600 baud in
-    the Arduino IDE (Tools > Open Serial Monitor).
+  - The DEBUG_MODE constant enables debug traces. To do so, the 
+    `//#define DEBUG_MODE` line in the "Constant definitions" section must be
+    uncommented and the serial port be opened at 9600 baud in the Arduino IDE
+    (Tools > Open Serial Monitor).
+
+  - The I2C_USE_DEFAULT_BUS constant allows the user to use another I²C bus.
+    By default, the A4 and A5 pins are used to communicate over I²C with the
+    OLED screen. But it is possible to use a different I²C bus and assign it
+    to different pins (to free the analog pins for instance). To do so, the 
+    `//#define I2C_USE_DEFAULT_BUS` line in the "Constant definitions" section
+    must be uncommented and the `PIN_SCREEN_SDA` and `PIN_SCREEN_SCL`
+    constants must be set to the desired pins.
+
+  - The OLED screen address is 0x3C.
 */
+
+/*--------------------------------
+ * Dependencies
+ *--------------------------------*/
+#include <stdint.h>
+#include <Wire.h>
+#include <Adafruit_SSD1306.h>
+
 
 /*--------------------------------
  * Constant definitions
  *--------------------------------*/
-//#define DEBUG_MODE
+#define DEBUG_MODE
+#define I2C_USE_DEFAULT_BUS
 
-/* Input pins */
-#define PIN_PUMP_BUTTON 4
-#define PIN_MOIST_SENSOR A0
+//--- Input pins ---//
+#define PIN_PUMP_BUTTON     D4
+#define PIN_MOIST_SENSOR    A0
 
-/* Output pins */
-// The yellow LED indicates the soil is dry
-#define PIN_LED_Y 6
-// The green LED indicates the pump is on
-#define PIN_LED_G 8
+//--- Output pins ---//
 // The relay directly commands the water pump
-#define PIN_RELAY 12
+#define PIN_RELAY           D12
 
-/* Constants */
-// Represents the dryness of the soil. A dryness greater than
-// BASE_DRY_THRESHOLD indicates the soil is dry. After calibration of the
-// sensor, the threshold is considered to be 1900 in absolute value.
-#define BASE_DRY_THRESHOLD 1900
+//--- I²C pins ---//
+// If I2C_USE_DEFAULT_BUS is defined, use different pins to communicate with
+// the OLED screen.
+#ifndef I2C_USE_DEFAULT_BUS
+#define PIN_SCREEN_SDA      D2
+#define PIN_SCREEN_SCL      D3
+#endif // I2C_USE_DEFAULT_BUS
+
+//--- Constants ---//
+// Represents the dryness of the soil. A value greater than
+// BASE_DRY_THRESHOLD indicates the soil is dry. After calibrating the
+// sensor, the threshold is considered to be 1900.
+#define BASE_DRY_THRESHOLD  1900
 // Period (in minutes) at which the moisture sensor will be read
-#define POLLING_PERIOD_M 30
+#define POLLING_PERIOD_M    30
 // Time in ms to wait to avoid bounces on the push button
-#define DEBOUNCE_DELAY 50
+#define DEBOUNCE_DELAY      50
+// OLED screen width, in pixels
+#define SCREEN_WIDTH        128         
+// OLED screen height, in pixels
+#define SCREEN_HEIGHT       64          
+// OLED screen address used to communicate over I²C
+#define SCREEN_I2C_ADDR     0x3C        
 
-/* Global variables */
+
+/*--------------------------------
+ * Type definitions
+ *--------------------------------*/
+// Used to indicate in which context the message must be displayed. It can be:
+//   - GENERAL_STATUS: The message contains useful information for the user
+//   - SOIL_MOISTURE: The message contains the soil moisture sensor value
+typedef enum {
+  GENERAL_STATUS,
+  SOIL_MOISTURE,
+} oled_msg_ctx;
+
+// Used to describe the current status of the system. It can be:
+//   - INIT: The system is currently initializing
+//   - SOIL_FINE: The soil moisture has been measured and the soil is fine
+//   - SOIL_DRY: The soil moisture has been measured and the soil is dry
+//   - PUMP_START: The system is currently watering the plants
+//   - PUMP_DONE: The system is done watering the plants
+typedef enum {
+  INIT,
+  SOIL_FINE,
+  SOIL_DRY,
+  PUMP_START,
+  PUMP_DONE,
+} gen_status;
+
+// Type passed as parameter to displayOled() in order to print a message
+// correctly on the screen.
+typedef struct {
+  // Indicate the purpose of the message
+  oled_msg_ctx ctx;
+
+  // Carry the information to be displayed on screen
+  union {
+    // Only valid if ctx = GENERAL_STATUS.
+    gen_status status;
+
+    // Only valid if ctx = SOIL_MOISTURE
+    uint32_t data;
+  } content;
+} oled_msg;
+
+
+/*--------------------------------
+ * Macro definitions
+ *--------------------------------*/
+// Just a tweak to only print the relative path to the filename in D_TRACE
+#define __FILENAME__ (strrchr(__FILE__, '\\') ? \
+  strrchr(__FILE__, '\\') + 1 : __FILE__)
+
+#ifdef DEBUG_MODE
+#define D_TRACE(s) do {         \
+  Serial.print(F("[DEBUG] "));  \
+  Serial.print(__FILENAME__);   \
+  Serial.print(F("@"));         \
+  Serial.print(__LINE__);       \
+  Serial.print(F(": {"));       \
+  Serial.print(__func__);       \
+  Serial.print(F("} "));        \
+  Serial.println(s);            \
+} while(0)
+#else
+#define D_TRACE(s)
+#endif // DEBUG_MODE
+
+
+/*--------------------------------
+ * Global variable declarations
+ *--------------------------------*/
+// OLED screen:
+//   (width_pixel, height_pixel, I²C bus to use, no reset pin)
+#ifdef I2C_USE_DEFAULT_BUS
+Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+#else
+Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire1, -1);
+#endif // I2C_USE_DEFAULT_BUS
+
+// Value to consider the soil to be ok at init
+uint16_t moistVal = BASE_DRY_THRESHOLD;
+
 // Used to debounce the push buttons
-volatile unsigned short lastEdgeTime = 0;
+volatile uint32_t lastEdgeTime = 0;
+
 
 /*--------------------------------
  * Function definitions
@@ -80,24 +189,34 @@ volatile unsigned short lastEdgeTime = 0;
 /// returns: void
 ///
 void setup() {
+  // Set up the serial port used to display debug traces
+  Serial.begin(9600);
+  // Wait for the serial port initialization
+  delay(2000);
+  D_TRACE("Serial port open");
+
   // Set up the GPIOs
-  pinMode(PIN_PUMP_BUTTON, INPUT_PULLDOWN);
+  pinMode(PIN_PUMP_BUTTON, INPUT);
   pinMode(PIN_MOIST_SENSOR, INPUT);
   pinMode(PIN_RELAY, OUTPUT);
-  pinMode(PIN_LED_G, OUTPUT);
-  pinMode(PIN_LED_Y, OUTPUT);
+  D_TRACE("GPIOs initialized");
 
-  // Turn off the LEDs at initialization
-  digitalWrite(PIN_LED_G, LOW);
-  digitalWrite(PIN_LED_Y, LOW);
+  // Initialize the OLED screen
+#ifndef I2C_USE_DEFAULT_BUS
+  Wire1.begin(PIN_SCREEN_SDA, PIN_SCREEN_SCL);
+#endif // I2C_USE_DEFAULT_BUS
+  if(!oled.begin(SSD1306_SWITCHCAPVCC, SCREEN_I2C_ADDR)) {
+    D_TRACE("Failed to Initialize the OLED screen");
+    while(1); // Stop there
+  }
+  D_TRACE("OLED screen initialized");
+  oled.clearDisplay();
+  oled.setTextColor(SSD1306_WHITE);
+  oled.setTextSize(1);
 
   // Set up the interrupt
   attachInterrupt(digitalPinToInterrupt(PIN_PUMP_BUTTON), handlePumpButton, CHANGE);
-
-#ifdef DEBUG_MODE
-  // Set up the serial port used to display the value on the screen
-  Serial.begin(9600);
-#endif
+  D_TRACE("Interrupt initialized");
 }
 
 /// loop()
@@ -111,48 +230,79 @@ void setup() {
 /// returns: void
 ///
 void loop() {
-  if (isSoilDry()) {
-    // The soil is dry! Turn on the pump for 5s and light on the green LED to
-    // signal it's currently watering.
-#ifdef DEBUG_MODE
-    Serial.println("loop(): The soil is dry!");
-#endif
-    digitalWrite(PIN_LED_Y, HIGH);
+  oled_msg msg;
+
+  readMoistureSensor();
+
+  // Update the Soil Moisture value on the screen
+  msg.ctx = SOIL_MOISTURE;
+  msg.content.data = moistVal;
+  displayOled(msg);
+  D_TRACE("Moisture sensor displayed on the screen");
+
+  if (moistVal > BASE_DRY_THRESHOLD) {
+    // The soil is dry! Turn on the pump for 5s
+    D_TRACE("The soil is dry!");
+
+    // Update the status on the screen
+    msg.ctx = GENERAL_STATUS;
+    msg.content.status = SOIL_DRY;
+    displayOled(msg);
+    D_TRACE("Status displayed on the screen");
+
+    // Water the plant
     actionPump(true);
-    digitalWrite(PIN_LED_G, HIGH);
+
+    // Update the status on the screen
+    msg.ctx = GENERAL_STATUS;
+    msg.content.status = PUMP_START;
+    displayOled(msg);
+    D_TRACE("Status displayed on the screen");
+
     delay(5000);
+    
+    // Stop watering the plant
     actionPump(false);
-    digitalWrite(PIN_LED_G, LOW);
+
+    // Update the status on the screen
+    msg.ctx = GENERAL_STATUS;
+    msg.content.status = PUMP_DONE;
+    displayOled(msg);
+    D_TRACE("Status displayed on the screen");
   } else {
-    digitalWrite(PIN_LED_Y, LOW);
+    D_TRACE("The soil is fine.");
+    // Update the status on the screen
+    msg.ctx = GENERAL_STATUS;
+    msg.content.status = SOIL_FINE;
+    displayOled(msg);
+    D_TRACE("Status displayed on the screen");
   }
   // The soil moisture will be polled next time based on the value defined in
-   // the constant definitions section above. delay() takes the time in ms.
+  // the constant definitions section above. delay() takes the time in ms.
 #ifdef DEBUG_MODE
   // While testing poll every 5s
+  D_TRACE("Going to sleep...\n");
   delay(5000);
 #else
   delay(POLLING_PERIOD_M * 3600);
 #endif
 }
 
-/// isSoilDry()
+/// readMoistureSensor()
 ///
-/// Function to determine if the soil is dry or not. It will read the value
-/// returned by the moisture sensor and if the value is higher than the defined
-/// threshold then it means the soil is dry.
+/// Function to read the value returned by the soil moisture sensor.
+///
+/// Note: The function does very little and might seem useless for now, but
+/// the design of using a function to read the sensor will be more valuable
+/// when the project gets more complex.
 ///
 /// parameters: none
 ///
-/// returns: true if the soil is dry, false otherwise
+/// returns: none
 ///
-bool isSoilDry() {
-  int valSensor = analogRead(PIN_MOIST_SENSOR);
-#ifdef DEBUG_MODE
-  Serial.println("isSoilDry(): valSensor = " + String(valSensor));
-#endif /* DEBUG_MODE */
-
-  return valSensor > BASE_DRY_THRESHOLD;
+void readMoistureSensor() {
+  moistVal = analogRead(PIN_MOIST_SENSOR);
+  D_TRACE("Measured moisture sensor value: " + String(moistVal));
 }
 
 /// actionPump()
@@ -169,21 +319,17 @@ void actionPump(bool toActivate) {
   if (toActivate) {
     // The relay is active low so `LOW` means ON.
     digitalWrite(PIN_RELAY, LOW);
-#ifdef DEBUG_MODE
-    Serial.println("actionPump(): Pump activated!");
-#endif /* DEBUG_MODE */
+    D_TRACE("Pump activated!");
   } else {
     digitalWrite(PIN_RELAY, HIGH);
-#ifdef DEBUG_MODE
-    Serial.println("actionPump(): Pump deactivated!");
-#endif /* DEBUG_MODE */
+    D_TRACE("Pump deactivated!");
   }
 }
 
 /// handlePumpButton()
 ///
 /// ISR that is called when the push button that manually controls the pump is
-/// pressed or released. It actually activate or deactivate the relay that
+/// pressed or released. It actually activates or deactivates the relay that
 /// controls the water pump.
 ///
 /// Note: It does maybe too much work for an ISR but it is fine for the moment.
@@ -195,13 +341,11 @@ void actionPump(bool toActivate) {
 void handlePumpButton() {
   // millis() is awkward in ISR but it's fine here since it's done as the very
   // first instruction.
-  unsigned long currTime = millis();
+  uint32_t currTime = millis();
   // Just a default value
   bool pushButtState = LOW;
 
-#ifdef DEBUG_MODE
-  Serial.println("handlePumpButton(): In the ISR!");
-#endif /* DEBUG_MODE */
+  D_TRACE("Button pushed!");
 
   // Need to debounce the push button. As the input may see erratic
   // rising/falling edges after a push on the button, the code will wait a
@@ -210,13 +354,78 @@ void handlePumpButton() {
     lastEdgeTime = currTime;
     pushButtState = digitalRead(PIN_PUMP_BUTTON);
 
-    // The relay is active low and the push button is high when pushed so it is
-    // the opposite.
+    // The relay is active low and the push button is high when pushed so it
+    // is the opposite.
     digitalWrite(PIN_RELAY, !pushButtState);
-    // Also light on a LED to give a feedback to the user.
-    digitalWrite(PIN_LED_G, pushButtState);
-#ifdef DEBUG_MODE
-    Serial.println("handlePumpButton(): User force the pump!");
-#endif /* DEBUG_MODE */
+    D_TRACE("Forced pump activation...");
   }
+}
+
+/// displayOled()
+///
+/// Function to display a message on the OLED screen.
+/// Display a message on the appropriate line of the OLED screen depending if
+/// it pertains to the soil moisture, or to the general status of the system.
+///
+/// parameters: 
+///   - msg (oled_msg): Contains the information to be displayed on the
+///     screen. See oled_msg type definition.
+///
+/// returns: 
+///     none
+///
+void displayOled(oled_msg msg) {
+  static String persStatusText;
+  static String persMoistureText;
+
+  D_TRACE("displayOled() called with context " + String(msg.ctx) + " to print: ");
+
+  // Update the persistent messages that will be displayed
+  switch(msg.ctx) {
+    case GENERAL_STATUS:
+      switch(msg.content.status) {
+        case INIT:
+          persStatusText = "Initialization...";
+          break;
+
+        case SOIL_FINE:
+          persStatusText = "Everything is fine!";
+          break;
+
+        case SOIL_DRY:
+          persStatusText = "The soil is dry!";
+          break;
+
+        case PUMP_START:
+          persStatusText = "Watering the plants...";
+          break;
+
+        case PUMP_DONE:
+          persStatusText = "Done watering the plants.";
+          break;
+      }
+      D_TRACE(persStatusText);
+      break;
+
+    case SOIL_MOISTURE:
+      persMoistureText = "Soil Moisture: " + String(msg.content.data);
+      D_TRACE("Soil Moisture: " + String(msg.content.data));
+      break;
+
+    default:
+      D_TRACE("[ERROR] Could not find a matching case");
+      D_TRACE("Context = " + String(msg.ctx));
+      break;
+  }
+
+  // Now build the whole text to display 
+  oled.clearDisplay();
+  oled.setTextColor(SSD1306_WHITE);
+  oled.setTextSize(1);
+  oled.setCursor(0, 0);
+  oled.print(persStatusText);
+  oled.setCursor(0, 16);
+  oled.print(persMoistureText);
+  // Display it on the screen
+  oled.display();
 }
