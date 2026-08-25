@@ -2,7 +2,8 @@
   main.ino
   =====================================
   Control the plant watering system. The system is composed of 6 units:
-    - The Arduino board
+    - The Arduino board:
+        An Arduino Nano ESP32 board.
     - A water pump:
         Controlled by a relay module activated and deactivated by the Arduino.
     - A soil moisture sensor:
@@ -17,50 +18,54 @@
     - An OLED screen:
         Displays information about the system to the user. Communicates over
         I²C.
+    - A distance sensor:
+        An HC-SR04 ultrasonic sensor that measures the distance between the
+        water and the sensor and infers the water level. That way, it prevents
+        the pump from being activated if there is no water in the tank.
   
   Hardware Connections :
-  Refer to the main.png image that can be found in the same folder.
+    Refer to the main.png image that can be found in the same folder.
 
   Note:  
-  - The pump is only activated for 5s when the soil is considered dry. It may
-    not be enough time to humidify the soil correctly. It shouldn't be too much
-    impactful because then the soil would be watered again on the next polling
-    time until it is considered sufficiently watered. But this 5s watering time
-    might be increased in the future if needed.
-  
-  - The soil moisture sensor value could be refined to be more comprehensive.
-    The map() function would be really useful for this. It will be required if
-    a screen is added to indicate the moisture pourcentage for example.
-  
-  - As references, the soil moisture sensor returned the following values:
-      § dipped into water:    1120
-      § into a wet soil:      1200
-      § into a fine soil:     1900
-      § into a very dry soil: 3280
-      § dry out in the air:   3300
+    - The pump is only activated for 5s when the soil is considered dry. It may
+      not be enough time to humidify the soil correctly. It shouldn't be too
+      much impactful because then the soil would be watered again on the next
+      polling time until it is considered sufficiently watered. But this 5s
+      watering time might be increased in the future if needed.
+    
+    - The soil moisture sensor value could be refined to be more comprehensive.
+      The map() function would be really useful for this. It will be required
+      if a screen is added to indicate the moisture pourcentage for example.
+    
+    - As references, the soil moisture sensor returned the following values:
+        § dipped into water:    1120
+        § into a wet soil:      1200
+        § into a fine soil:     1900
+        § into a very dry soil: 3280
+        § dry out in the air:   3300
 
-  - As references, the luminosity sensor returned the following values:
-      § outside directly exposed to the sun:  4095
-      § outside in the shades:                3900
-      § outside at night:                     0
-      § inside in a dark room:                0
-      § in a room with natural light:         3200
-      § in a room with artificial light:      3000
+    - As references, the luminosity sensor returned the following values:
+        § outside directly exposed to the sun:  4095
+        § outside in the shades:                3900
+        § outside at night:                     0
+        § inside in a dark room:                0
+        § in a room with natural light:         3200
+        § in a room with artificial light:      3000
 
-  - The DEBUG_MODE constant enables debug traces. To do so, the 
-    `//#define DEBUG_MODE` line in the "Constant definitions" section must be
-    uncommented and the serial port be opened at 9600 baud in the Arduino IDE
-    (Tools > Open Serial Monitor).
+    - The DEBUG_MODE constant enables debug traces. To do so, the 
+      `//#define DEBUG_MODE` line in the "Constant definitions" section must be
+      uncommented and the serial port be opened at 9600 baud in the Arduino IDE
+      (Tools > Open Serial Monitor).
 
-  - The I2C_USE_DEFAULT_BUS constant allows the user to use another I²C bus.
-    By default, the A4 and A5 pins are used to communicate over I²C with the
-    OLED screen. But it is possible to use a different I²C bus and assign it
-    to different pins (to free the analog pins for instance). To do so, the 
-    `//#define I2C_USE_DEFAULT_BUS` line in the "Constant definitions" section
-    must be uncommented and the `PIN_SCREEN_SDA` and `PIN_SCREEN_SCL`
-    constants must be set to the desired pins.
+    - The I2C_USE_DEFAULT_BUS constant allows the user to use another I²C bus.
+      By default, the A4 and A5 pins are used to communicate over I²C with the
+      OLED screen. But it is possible to use a different I²C bus and assign it
+      to different pins (to free the analog pins for instance). To do so, the 
+      `//#define I2C_USE_DEFAULT_BUS` line in the "Constant definitions"
+      section must be uncommented and the `PIN_SCREEN_SDA` and `PIN_SCREEN_SCL`
+      constants must be set to the desired pins.
 
-  - The OLED screen address is 0x3C.
+    - The OLED screen address is 0x3C.
 */
 
 /*--------------------------------
@@ -82,10 +87,12 @@
 #define PIN_PUMP_BUTTON     D4
 #define PIN_MOIST_SENSOR    A0
 #define PIN_LUM_SENSOR      A2
+#define PIN_ECHO            D8
 
 //--- Output pins ---//
 // The relay directly commands the water pump
 #define PIN_RELAY           D12
+#define PIN_TRIG            D6
 
 //--- I²C pins ---//
 // If I2C_USE_DEFAULT_BUS is defined, use different pins to communicate with
@@ -115,6 +122,8 @@
 #define SCREEN_HEIGHT           64          
 // OLED screen address used to communicate over I²C
 #define SCREEN_I2C_ADDR         0x3C        
+// Distance in mm from the base of the sensor to the bottom of the water tank
+#define WATER_SENSOR_DISTANCE   120
 
 
 /*--------------------------------
@@ -134,12 +143,15 @@ typedef enum {
 //   - INIT: The system is currently initializing
 //   - SOIL_FINE: The soil moisture has been measured and the soil is fine
 //   - SOIL_DRY: The soil moisture has been measured and the soil is dry
+//   - WATER_LOW: There is not enough water in the tank. The pump won't be
+///      activated.
 //   - PUMP_START: The system is currently watering the plants
 //   - PUMP_DONE: The system is done watering the plants
 typedef enum {
   INIT,
   SOIL_FINE,
   SOIL_DRY,
+  WATER_LOW,
   PUMP_START,
   PUMP_DONE,
 } gen_status;
@@ -227,6 +239,8 @@ void setup() {
   pinMode(PIN_MOIST_SENSOR, INPUT);
   pinMode(PIN_LUM_SENSOR, INPUT);
   pinMode(PIN_RELAY, OUTPUT);
+  // Turn off the pump at init (active low)
+  digitalWrite(PIN_RELAY, HIGH);
   D_TRACE("GPIOs initialized");
 
   // Initialize the OLED screen
@@ -279,32 +293,41 @@ void loop() {
     // The soil is dry! Turn on the pump for 5s
     D_TRACE("The soil is dry!");
 
-    // Update the status on the screen
-    msg.ctx = GENERAL_STATUS;
-    msg.content.status = SOIL_DRY;
-    displayOled(msg);
-    D_TRACE("Status displayed on the screen");
+    if (isWaterLevelLow()) {
+      // But there is not enough water in the tank, don't turn the pump on
+      // Update the status on the screen
+      msg.ctx = GENERAL_STATUS;
+      msg.content.status = WATER_LOW;
+      displayOled(msg);
+      D_TRACE("Status displayed on the screen");
+    } else {
+      // Update the status on the screen
+      msg.ctx = GENERAL_STATUS;
+      msg.content.status = SOIL_DRY;
+      displayOled(msg);
+      D_TRACE("Status displayed on the screen");
 
-    // Water the plant
-    actionPump(true);
+      // Water the plant
+      actionPump(true);
 
-    // Update the status on the screen
-    msg.ctx = GENERAL_STATUS;
-    msg.content.status = PUMP_START;
-    displayOled(msg);
-    D_TRACE("Status displayed on the screen");
+      // Update the status on the screen
+      msg.ctx = GENERAL_STATUS;
+      msg.content.status = PUMP_START;
+      displayOled(msg);
+      D_TRACE("Status displayed on the screen");
 
-    D_TRACE("Waiting 5s for the plants to be watered.");
-    delay(5000);
-    
-    // Stop watering the plant
-    actionPump(false);
+      D_TRACE("Waiting 5s for the plants to be watered.");
+      delay(5000);
+      
+      // Stop watering the plant
+      actionPump(false);
 
-    // Update the status on the screen
-    msg.ctx = GENERAL_STATUS;
-    msg.content.status = PUMP_DONE;
-    displayOled(msg);
-    D_TRACE("Status displayed on the screen");
+      // Update the status on the screen
+      msg.ctx = GENERAL_STATUS;
+      msg.content.status = PUMP_DONE;
+      displayOled(msg);
+      D_TRACE("Status displayed on the screen");
+    }
   } else {
     D_TRACE("The soil is fine.");
     // Update the status on the screen
@@ -334,7 +357,7 @@ void loop() {
 ///
 /// parameters: none
 ///
-/// returns: none
+/// returns: void
 ///
 void readMoistureSensor() {
   moistVal = analogRead(PIN_MOIST_SENSOR);
@@ -351,12 +374,61 @@ void readMoistureSensor() {
 ///
 /// parameters: none
 ///
-/// returns: none
+/// returns: void
 ///
 void readLuminositySensor() {
   lumVal = analogRead(PIN_LUM_SENSOR);
   D_TRACE("Measured luminosity sensor value: " + String(lumVal));
 }
+
+/// isWaterLevelLow()
+///
+/// Function to determine if the water level in the tank is low or not.
+/// It uses the SR-HC
+///
+/// parameters: none
+///
+/// returns: (bool) true if the water level is lower than 1 cm, false otherwise
+///
+bool isWaterLevelLow() {
+  uint32_t duration = 0;
+  uint32_t distance = 0;
+  uint32_t waterLevel = 0;
+
+  // Initialize the Trigger pin
+  digitalWrite(PIN_TRIG, LOW);
+  delayMicroseconds(1);
+  // Send the trigger signal
+  digitalWrite(PIN_TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(PIN_TRIG, LOW);
+  D_TRACE("TRIG signal sent.");
+
+  // Measure the time (in us) before an echo is received
+  // TODO[CS]: Add a timeout (check arduino docs for pulseIn)
+  duration = pulseIn(PIN_ECHO, HIGH); 
+  
+  // Compute the distance from the duration:
+  //  - Ultrasonic speed is 340 m/s = 0.034 cm/us
+  //  - The pulse has travelled twice the distance
+  if (!duration) {
+    // Did not detect an echo signal. Consider the water level to be low so
+    // the user will check what might be wrong
+    D_TRACE("pulseIn() returned 0. Something went wrong.");
+  } else {
+    // Distance between the sensor and the water
+    distance = duration / 2 * 0.34;
+    // Infer the water level from the distance between the sensor and the water
+    // (add 10 mm as a margin)
+    waterLevel = WATER_SENSOR_DISTANCE + 10 - distance;
+  }
+
+  // Send the value through the serial port
+  D_TRACE("distance (mm): " + String(distance) + "\twater level (mm): " + String(waterLevel));
+
+  return (waterLevel < 10);
+}
+
 
 /// actionPump()
 ///
@@ -437,8 +509,7 @@ void handlePumpButton() {
 ///   - msg (oled_msg): Contains the information to be displayed on the
 ///     screen. See oled_msg type definition.
 ///
-/// returns: 
-///     none
+/// returns: void
 ///
 void displayOled(oled_msg msg) {
   static String persStatusText;
@@ -461,6 +532,10 @@ void displayOled(oled_msg msg) {
 
         case SOIL_DRY:
           persStatusText = "The soil is dry!";
+          break;
+
+        case WATER_LOW:
+          persStatusText = "The water tank is empty. Need a refill!";
           break;
 
         case PUMP_START:
