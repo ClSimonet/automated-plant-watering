@@ -1,34 +1,48 @@
 /* 
   main.ino
   =====================================
-  Control the plant watering system. The system is composed of 4 units:
+  Control the plant watering system. The system is composed of 6 units:
     - The Arduino board
-    - The water pump motor controlled by a relay module
-    - The soil moisture sensor
-    - A switch to override the sensor check and force the activation of the
-      pump
+    - A water pump
+        Controlled by a relay module activated and deactivated by the Arduino.
+    - A soil moisture sensor:
+        Indicates the dryness of the plants soil.
+    - A luminosity sensor:
+        Indicates if the luminosity received by the plants is good or not.
+    - A push button:
+        Overrides the soil moisture sensor and force the activation of the
+        pump.
+    - An OLED screen:
+        Displays information about the system to the user.
   
   Hardware Connections :
   Refer to the main.png image that can be found in the same folder.
 
   Note:  
-  - the pump is only activated for 5s when the soil is considered dry. It may
+  - The pump is only activated for 5s when the soil is considered dry. It may
     not be enough time to humidify the soil correctly. It shouldn't be too much
     impactful because then the soil would be watered again on the next polling
     time until it is considered sufficiently watered. But this 5s watering time
     might be increased in the future if needed.
   
-  - the sensor value could be refined to be more comprehensive. The map()
-    function would be really useful for this. It will be required if a screen
-    is added to indicate the moisture pourcentage for example.
+  - The soil moisture sensor value could be refined to be more comprehensive.
+    The map() function would be really useful for this. It will be required if
+    a screen is added to indicate the moisture pourcentage for example.
   
-  - during testing, the moisture sensor returned values never less than 1100
-    (dipped into water) and never more than 3350 (out in the air).
-  
-  - during testing, the moisture sensor returned a value of ... for a soil
-    considered fine, a value of 2800 for a soil considered dry, a value of ...
-    for a soil considered very dry, and a value of ... for a soil considered
-    very wet. 
+  - As references, the soil moisture sensor returned the following values:
+      § dipped into water:    1120
+      § into a wet soil:      1200
+      § into a fine soil:     1900
+      § into a very dry soil: 3280
+      § dry out in the air:   3300
+
+  - As references, the luminosity sensor returned the following values:
+      § outside directly exposed to the sun:  4095
+      § outside in the shades:                3900
+      § outside at night:                     0
+      § inside in a dark room:                0
+      § in a room with natural light:         3200
+      § in a room with artificial light:      3000
 
   - The DEBUG_MODE constant enables debug traces. To do so, the 
     `//#define DEBUG_MODE` line in the "Constant definitions" section must be
@@ -63,6 +77,7 @@
 //--- Input pins ---//
 #define PIN_PUMP_BUTTON     D4
 #define PIN_MOIST_SENSOR    A0
+#define PIN_LUM_SENSOR      A2
 
 //--- Output pins ---//
 // The relay directly commands the water pump
@@ -76,21 +91,26 @@
 #define PIN_SCREEN_SCL      D3
 #endif // I2C_USE_DEFAULT_BUS
 
-//--- Constants ---//
+//--- Miscelleanous constants ---//
 // Represents the dryness of the soil. A value greater than
-// BASE_DRY_THRESHOLD indicates the soil is dry. After calibrating the
+// SOIL_DRYNESS_THRESHOLD indicates the soil is dry. After calibrating the
 // sensor, the threshold is considered to be 1900.
-#define BASE_DRY_THRESHOLD  1900
+#define SOIL_DRYNESS_THRESHOLD  1900
+// Since the relation between the luminosity and the value returned by the
+// sensor is not linear, a few thresholds are defined rather than taking the
+// value as is and map it to a percentage like for the moisture sensor.
+#define LIGHT_THRESHOLD_LOW     1500
+#define LIGHT_THRESHOLD_GREAT   4000
 // Period (in minutes) at which the moisture sensor will be read
-#define POLLING_PERIOD_M    30
+#define POLLING_PERIOD_M        30
 // Time in ms to wait to avoid bounces on the push button
-#define DEBOUNCE_DELAY      50
+#define DEBOUNCE_DELAY          50
 // OLED screen width, in pixels
-#define SCREEN_WIDTH        128         
+#define SCREEN_WIDTH            128         
 // OLED screen height, in pixels
-#define SCREEN_HEIGHT       64          
+#define SCREEN_HEIGHT           64          
 // OLED screen address used to communicate over I²C
-#define SCREEN_I2C_ADDR     0x3C        
+#define SCREEN_I2C_ADDR         0x3C        
 
 
 /*--------------------------------
@@ -99,9 +119,11 @@
 // Used to indicate in which context the message must be displayed. It can be:
 //   - GENERAL_STATUS: The message contains useful information for the user
 //   - SOIL_MOISTURE: The message contains the soil moisture sensor value
+//   - LUMINOSITY: The message contains the luminosity sensor value
 typedef enum {
   GENERAL_STATUS,
   SOIL_MOISTURE,
+  LUMINOSITY,
 } oled_msg_ctx;
 
 // Used to describe the current status of the system. It can be:
@@ -126,10 +148,10 @@ typedef struct {
 
   // Carry the information to be displayed on screen
   union {
-    // Only valid if ctx = GENERAL_STATUS.
+    // Only valid if ctx is GENERAL_STATUS.
     gen_status status;
 
-    // Only valid if ctx = SOIL_MOISTURE
+    // Only valid if ctx is SOIL_MOISTURE or LUMINOSITY.
     uint32_t data;
   } content;
 } oled_msg;
@@ -169,8 +191,9 @@ Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire1, -1);
 #endif // I2C_USE_DEFAULT_BUS
 
-// Value to consider the soil to be ok at init
-uint16_t moistVal = BASE_DRY_THRESHOLD;
+// Use init values to consider the system to be fine
+uint16_t moistVal = SOIL_DRYNESS_THRESHOLD + 1;
+uint16_t lumVal = LIGHT_THRESHOLD_LOW + 1;
 
 // Used to debounce the push buttons
 volatile uint32_t lastEdgeTime = 0;
@@ -198,6 +221,7 @@ void setup() {
   // Set up the GPIOs
   pinMode(PIN_PUMP_BUTTON, INPUT);
   pinMode(PIN_MOIST_SENSOR, INPUT);
+  pinMode(PIN_LUM_SENSOR, INPUT);
   pinMode(PIN_RELAY, OUTPUT);
   D_TRACE("GPIOs initialized");
 
@@ -233,14 +257,20 @@ void loop() {
   oled_msg msg;
 
   readMoistureSensor();
-
   // Update the Soil Moisture value on the screen
   msg.ctx = SOIL_MOISTURE;
   msg.content.data = moistVal;
   displayOled(msg);
   D_TRACE("Moisture sensor displayed on the screen");
 
-  if (moistVal > BASE_DRY_THRESHOLD) {
+  readLuminositySensor();
+  // Update the Luminosity value on the screen
+  msg.ctx = LUMINOSITY;
+  msg.content.data = lumVal;
+  displayOled(msg);
+  D_TRACE("Luminosity displayed on the screen");
+
+  if (moistVal > SOIL_DRYNESS_THRESHOLD) {
     // The soil is dry! Turn on the pump for 5s
     D_TRACE("The soil is dry!");
 
@@ -259,6 +289,7 @@ void loop() {
     displayOled(msg);
     D_TRACE("Status displayed on the screen");
 
+    D_TRACE("Waiting 5s for the plants to be watered.");
     delay(5000);
     
     // Stop watering the plant
@@ -305,6 +336,23 @@ void readMoistureSensor() {
   D_TRACE("Measured moisture sensor value: " + String(moistVal));
 }
 
+/// readLuminositySensor()
+///
+/// Function to read the value returned by the luminosity sensor.
+///
+/// Note: The function does very little and might seem useless for now, but
+/// the design of using a function to read the sensor will be more valuable
+/// when the project gets more complex.
+///
+/// parameters: none
+///
+/// returns: none
+///
+void readLuminositySensor() {
+  lumVal = analogRead(PIN_LUM_SENSOR);
+  D_TRACE("Measured luminosity sensor value: " + String(lumVal));
+}
+
 /// actionPump()
 ///
 /// Function to activate or deactivate the relay that controls the water pump.
@@ -345,7 +393,7 @@ void handlePumpButton() {
   // Just a default value
   bool pushButtState = LOW;
 
-  D_TRACE("Button pushed!");
+  D_TRACE("Pump Button interrupt.");
 
   // Need to debounce the push button. As the input may see erratic
   // rising/falling edges after a push on the button, the code will wait a
@@ -354,10 +402,15 @@ void handlePumpButton() {
     lastEdgeTime = currTime;
     pushButtState = digitalRead(PIN_PUMP_BUTTON);
 
+    if (pushButtState == HIGH) {
+      D_TRACE("Button pushed.");
+    } else {
+      D_TRACE("Button released.");
+    }
     // The relay is active low and the push button is high when pushed so it
     // is the opposite.
     digitalWrite(PIN_RELAY, !pushButtState);
-    D_TRACE("Forced pump activation...");
+    D_TRACE("Pump activated/deactivated.");
   }
 }
 
@@ -377,6 +430,7 @@ void handlePumpButton() {
 void displayOled(oled_msg msg) {
   static String persStatusText;
   static String persMoistureText;
+  static String persLuminosityText;
 
   D_TRACE("displayOled() called with context " + String(msg.ctx) + " to print: ");
 
@@ -412,6 +466,17 @@ void displayOled(oled_msg msg) {
       D_TRACE("Soil Moisture: " + String(msg.content.data));
       break;
 
+    case LUMINOSITY:
+      if (msg.content.data > LIGHT_THRESHOLD_GREAT) {
+        persLuminosityText = "Luminosity: LIGHTMAXXING!";
+      } else if (msg.content.data > LIGHT_THRESHOLD_LOW) {
+        persLuminosityText = "Luminosity: FINE.";
+      } else {
+        persLuminosityText = "Luminosity: LOW...";
+      } 
+      D_TRACE("Luminosity: " + String(msg.content.data));
+      break;
+
     default:
       D_TRACE("[ERROR] Could not find a matching case");
       D_TRACE("Context = " + String(msg.ctx));
@@ -424,8 +489,10 @@ void displayOled(oled_msg msg) {
   oled.setTextSize(1);
   oled.setCursor(0, 0);
   oled.print(persStatusText);
-  oled.setCursor(0, 16);
+  oled.setCursor(0, 24);
   oled.print(persMoistureText);
+  oled.setCursor(0, 40);
+  oled.print(persLuminosityText);
   // Display it on the screen
   oled.display();
 }
