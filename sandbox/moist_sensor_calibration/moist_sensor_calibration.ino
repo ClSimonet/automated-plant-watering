@@ -1,5 +1,5 @@
 /* 
-  Moist_sensor_calibration.ino
+  moist_sensor_calibration.ino
   =====================================
    Simply reads the values from the capacitive moisture sensor.
    It is intended to determine the value returned by the sensor when put in a
@@ -15,15 +15,19 @@
   same folder.
   
   Notes:  
-  - during testing, the moisture sensor returned a value of ... for a soil
-    considered fine, a value of 2800 for a soil considered dry, a value of ...
-    for a soil considered very dry, and a value of ... for a soil considered
-    very wet. 
+  - Here are the values returned by the soil moisture sensor returned during
+    testing for some key scenarios:
+      § dipped into water: 1120
+      § into a wet soil: 1200
+      § into a fine soil: 1900
+      § into a very dry soil: 3280
+      § dry out in the air: 3300
 */
 
 /*--------------------------------
  * Constant definitions
  *--------------------------------*/
+ //--- Input pin ---//
 #define PIN_SENSOR A0
 
 /*--------------------------------
@@ -41,6 +45,8 @@
 void setup() {
   // Set up the serial port used to display the value on the screen
   Serial.begin(9600);
+  // Wait for the serial port to open
+  delay(2000);
 }
 
 /// loop()
