@@ -3,17 +3,20 @@
   =====================================
   Control the plant watering system. The system is composed of 6 units:
     - The Arduino board
-    - A water pump
+    - A water pump:
         Controlled by a relay module activated and deactivated by the Arduino.
     - A soil moisture sensor:
-        Indicates the dryness of the plants soil.
+        A capacitive soil moisture sensor that indicates the dryness of the
+        plants soil.
     - A luminosity sensor:
-        Indicates if the luminosity received by the plants is good or not.
+        A voltage divider built around a photoresistor that indicates if the
+        luminosity received by the plants is good or not.
     - A push button:
-        Overrides the soil moisture sensor and force the activation of the
+        Overrides the soil moisture sensor and forces the activation of the
         pump.
     - An OLED screen:
-        Displays information about the system to the user.
+        Displays information about the system to the user. Communicates over
+        I²C.
   
   Hardware Connections :
   Refer to the main.png image that can be found in the same folder.
@@ -71,6 +74,7 @@
 /*--------------------------------
  * Constant definitions
  *--------------------------------*/
+//--- Configuration constants ---//
 #define DEBUG_MODE
 #define I2C_USE_DEFAULT_BUS
 
@@ -205,7 +209,7 @@ volatile uint32_t lastEdgeTime = 0;
 /// setup()
 ///
 /// Function that will be called only once before loop(). Contains the board,
-/// interrupts and variable setup.
+/// the interrupts, the OLED screenn and the serial port setup.
 ///
 /// parameters: none
 ///
@@ -247,7 +251,8 @@ void setup() {
 ///
 /// Function that will be looped over indefinitely. Polls the moisture sensor
 /// value periodically and activate the pump for 5s if the soil is dry, then
-/// deactivate the pump.
+/// deactivate the pump. Also read the luminosity sensor. Display of the
+/// information on an OLED screen.
 ///
 /// parameters: none
 ///
@@ -378,7 +383,7 @@ void actionPump(bool toActivate) {
 ///
 /// ISR that is called when the push button that manually controls the pump is
 /// pressed or released. It actually activates or deactivates the relay that
-/// controls the water pump.
+/// controls the water pump, overriding the loop function.
 ///
 /// Note: It does maybe too much work for an ISR but it is fine for the moment.
 ///
@@ -390,7 +395,6 @@ void handlePumpButton() {
   // millis() is awkward in ISR but it's fine here since it's done as the very
   // first instruction.
   uint32_t currTime = millis();
-  // Just a default value
   bool pushButtState = LOW;
 
   D_TRACE("Pump Button interrupt.");
@@ -417,8 +421,17 @@ void handlePumpButton() {
 /// displayOled()
 ///
 /// Function to display a message on the OLED screen.
-/// Display a message on the appropriate line of the OLED screen depending if
-/// it pertains to the soil moisture, or to the general status of the system.
+/// Every time this function is called, it will regenerate the whole screen to
+/// display (not only the information contained in `msg`). That is because
+/// clearDisplay() is needed to get rid of the old information but it
+/// completely empties the OLED screen buffer thus all the other information
+/// would be lost. To avoid that, every information received is saved into a
+/// persistent String that will be used to regenerate the whole screen.
+///
+/// Note: Another solution to the clearDisplay() problem might be to use
+///   print("") on the related line, then to use it again with the new
+///   information. Even though the current solution is less efficient, it was
+///   deemed more comprehensible. This might be a point of optimization.
 ///
 /// parameters: 
 ///   - msg (oled_msg): Contains the information to be displayed on the
