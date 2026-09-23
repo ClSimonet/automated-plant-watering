@@ -1,28 +1,27 @@
 /* 
-  water_level_sensor_calibration.ino
+  water_level.cpp
   =====================================
-    Reads the distance from the water tank.
-    The HC-SR04 sensor sends a trigger signal and waits for an echo signal. The
-    distance between the sensor and the water level is calculated based on the
-    time between the trigger and the echo signals. Indeed, as the signal will 
-    travel at the sound speed (340 m/s) and cover twice the distance, the
-    distance between the sensor and the water level in mm is equal to:  
-      distance = travel_time / 2 * 340 * 1000 / 1000000
-    As this distance corresponds to the distance between the sensor and the
-    water level, the water level actually depends on the water tank size and is
-    calculated by:
-      water_level = water_tank_height - distance
-    The user can use the push button to activate the pump in order to vary the
-    water level and ensure the HC-SR04 sensor accurately measures the change.
-
+  Code used to test and play with the water level sensor. 
+  It consists in a small application that determines the level of water in the tank from the ultrasonic sensor, and send all the useful information (travel
+  time of the sonic impulse, distance between the sensor and the water, water
+  level in the tank) over the serial port at 9600 baud/s.
+  The HC-SR04 sensor sends a trigger signal and waits for an echo signal. The
+  distance between the sensor and the water level is calculated based on the
+  time between the trigger and the echo signals. Indeed, as the signal will 
+  travel at the sound speed (340 m/s) and cover twice the distance, the
+  distance between the sensor and the water level in mm is equal to:  
+    distance = travel_time / 2 * 340 * 1000 / 1000000
+  As this distance corresponds to the distance between the sensor and the
+  water level, the water level actually depends on the water tank size and is
+  calculated by:
+    water_level = water_tank_height - distance
+  The user can use the push button to activate the pump in order to vary the
+  water level and ensure the HC-SR04 sensor accurately measures the change.
+   
   Hardware Connections :
-    Refer to the water_level.png image that can be found in the parent folder.
-  
-  Notes:  
-    - The DEBUG_MODE constant allows the user to see debug traces. To do so the
-      user must uncomment the "//#define DEBUG_MODE" line below in the
-      "Constant definitions" section and open the serial port at 9600 baud in
-      the Arduino IDE (Tools > Open Serial Monitor).
+    Refer to the water_level.png image that can be found in the assets folder.
+
+  Notes:   
     - Instead of using an external pulldown resistor on the pin D4, it is
       possible to use the internal pull down resistor by writing
       "pinMode(PIN_BUTTON_PUMP, INPUT_PULLDOWN)" in the setup function.
@@ -32,51 +31,9 @@
  * Dependencies
  *--------------------------------*/
 #include <stdint.h>
-#include <string.h>
-
-
-/*--------------------------------
- * Constant definitions
- *--------------------------------*/
-// If defined, then the D_TRACE() macro will print useful information on the
-// serial port for debugging purpose
-//#define DEBUG_MODE
-
-//--- GPIO output pins ---//
-#define PIN_RELAY_PUMP  D12
-#define PIN_TRIG        D6
-
-//--- GPIO input pins---//
-#define PIN_ECHO        D8
-#define PIN_BUTTON_PUMP D4
-
-//--- Miscellaneous constants ---//
-// Distance in mm from the base of the sensor to the bottom of the water tank
-#define WATER_SENSOR_DISTANCE   120
-
-
-/*--------------------------------
- * Macro definitions
- *--------------------------------*/
-// Just a tweak to only print the relative path to the filename in D_TRACE
-#define __FILENAME__ (strrchr(__FILE__, '\\') ? \
-  strrchr(__FILE__, '\\') + 1 : __FILE__)
-
-#ifdef DEBUG_MODE
-#define D_TRACE(s) do {         \
-  Serial.print(F("[DEBUG] "));  \
-  Serial.print(__FILENAME__);   \
-  Serial.print(F("@"));         \
-  Serial.print(__LINE__);       \
-  Serial.print(F(": {"));       \
-  Serial.print(__func__);       \
-  Serial.print(F("} "));        \
-  Serial.println(s);            \
-} while(0)
-#else
-#define D_TRACE(s)
-#endif // DEBUG_MODE
-
+#include <Arduino.h>
+#include "config.h"
+#include "macros.h"
 
 /*--------------------------------
  * Global variable definitions
@@ -85,6 +42,10 @@ volatile uint32_t lastEdgeTime = 0;
 // 50 ms seems reliable
 volatile uint32_t debounceDelay = 50;
 
+/*--------------------------------
+ * Forward declaration
+ *--------------------------------*/
+void handleButton(void);
 
 /*--------------------------------
  * Function definitions
@@ -102,13 +63,13 @@ void setup() {
   // Set up the GPIOs
   pinMode(PIN_ECHO, INPUT);
   pinMode(PIN_TRIG, OUTPUT);
-  pinMode(PIN_BUTTON_PUMP, INPUT);
-  pinMode(PIN_RELAY_PUMP, OUTPUT);
+  pinMode(PIN_PUMP_BUTTON, INPUT);
+  pinMode(PIN_RELAY, OUTPUT);
 
-  attachInterrupt(digitalPinToInterrupt(PIN_BUTTON_PUMP), handleButton, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(PIN_PUMP_BUTTON), handleButton, CHANGE);
 
   // The relay is active low. Deactivate it by default.
-  digitalWrite(PIN_RELAY_PUMP, HIGH);
+  digitalWrite(PIN_RELAY, HIGH);
 
   // Set up the serial port used to display the value on the screen
   Serial.begin(9600);
@@ -194,7 +155,7 @@ void handleButton() {
   // defined delay after the first edge detected.
   if (currTime - lastEdgeTime > debounceDelay) {
     lastEdgeTime = currTime;
-    pushButtState = digitalRead(PIN_BUTTON_PUMP);
+    pushButtState = digitalRead(PIN_PUMP_BUTTON);
 
     // The relay is active low and the push button is high when pushed so it is
     // the opposite.
@@ -203,6 +164,6 @@ void handleButton() {
     } else {
       D_TRACE("Relay deactivated.");
     }
-    digitalWrite(PIN_RELAY_PUMP, !pushButtState);
+    digitalWrite(PIN_RELAY, !pushButtState);
   }
 }

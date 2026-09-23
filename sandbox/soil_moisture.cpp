@@ -1,28 +1,32 @@
 /* 
-  moist_sensor_calibration.ino
+  soil_moisture.cpp
   =====================================
-   Simply reads the values from the capacitive moisture sensor.
-   It is intended to determine the value returned by the sensor when put in a
-   dry soil and humid soil. That way, these values can be used as threshold
-   later to consider if the soil is dry or not.
-   The analog pin A0 receives the value from the sensor. It is then sent over
-   the serial port @9600 baud.
-   To observe the measured value, the user must open the serial port in the
-   Arduino IDE (Tools > Open Serial Monitor).
-
-  Hardware Connections :
-  Refer to the moist_sensor_calibration.png image that can be found in the
-  same folder.
+  Code used to test and play with the soil moisture sensor. 
+  It consists in a small application that reads the soil moisture sensor value,
+  map it to a percentage, and display both the raw value and the percentage on
+  the serial port.
+  The raw soil moisture sensor value is received on the analog pin A0.
+  The data is sent over the serial port at 9600 baud/s.
   
-  Notes:  
-  - Here are the values returned by the soil moisture sensor returned during
-    testing for some key scenarios:
+  Hardware Connections :
+    Refer to the soil_moisture.png image that can be found in the assets folder.
+
+  Notes:   
+    - As references, during testing the sensor returned the following values:
       § dipped into water: 1120
       § into a wet soil: 1200
       § into a fine soil: 1900
       § into a very dry soil: 3280
       § dry out in the air: 3300
 */
+
+/*--------------------------------
+ * Dependencies
+ *--------------------------------*/
+#include <stdint.h>
+#include <Arduino.h>
+#include "config.h"
+#include "macros.h"
 
 /*--------------------------------
  * Constant definitions
@@ -64,7 +68,7 @@ void loop() {
   val = analogRead(PIN_SENSOR);
   perc = map(val, 1100, 3500, 0, 100);
   // Send the value through the serial port
-  Serial.println("Sensor value: " + String(val));
-  Serial.println("Expressed in percentage: " + String(perc));
+  D_TRACE("Sensor value: " + String(val));
+  D_TRACE("Expressed in percentage: " + String(perc));
   delay(1000);
 }
