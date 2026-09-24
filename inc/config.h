@@ -62,5 +62,8 @@
 #define SCREEN_I2C_ADDR         0x3C        
 // Distance in mm from the base of the sensor to the bottom of the water tank
 #define WATER_SENSOR_DISTANCE   120
+// Timeout (in us) used by pulseIn to detect the echo when checking water the
+// level. The timeout corresponds to an echo on a distance of 1 meter.
+#define WATER_ECHO_TIMEOUT      6000
 
 #endif // CONFIG_H

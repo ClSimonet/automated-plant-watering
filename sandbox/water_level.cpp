@@ -105,9 +105,9 @@ void loop() {
   digitalWrite(PIN_TRIG, LOW);
   D_TRACE("TRIG signal sent.");
 
-  // Measure the time (in us) before an echo is received
-  // TODO[CS]: Add a timeout (check arduino docs for pulseIn)
-  duration = pulseIn(PIN_ECHO, HIGH); 
+  // Measure the time (in us) before an echo is received.
+  duration = pulseIn(PIN_ECHO, HIGH, WATER_ECHO_TIMEOUT); 
+  D_TRACE("ECHO impulse received.");
   
   // Compute the distance from the duration:
   //  - Ultrasonic speed is 340 m/s = 0.034 cm/us
@@ -120,8 +120,13 @@ void loop() {
     // Distance between the sensor and the water
     distance = duration / 2 * 0.34;
     // Infer the water level from the distance between the sensor and the water
-    // (add 10 mm as a margin)
-    waterLevel = WATER_SENSOR_DISTANCE + 10 - distance;
+    if (distance > WATER_SENSOR_DISTANCE) {
+      // Might happen due to imprecision on WATER_SENSOR_DISTANCE or the
+      // measured value. Anyway it means is no water in the tank.
+      waterLevel = 0;
+    } else {
+      waterLevel = WATER_SENSOR_DISTANCE - distance;
+    }
   }
 
   // Send the value through the serial port
