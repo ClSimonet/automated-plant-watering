@@ -8,6 +8,9 @@
   This module heavily relies on the Adafruit_SSD1306 library.  
  */
 
+#ifndef DISPLAY_H
+#define DISPLAY_H
+
 /*--------------------------------
  * Dependencies
  *--------------------------------*/
@@ -51,3 +54,5 @@ int initOledScreen(void);
 /// returns: void
 ///
 void displayOled(oled_msg msg);
+
+#endif // DISPLAY_H

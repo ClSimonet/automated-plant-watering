@@ -30,6 +30,9 @@
   It is powered in 3.3V. The trigger impulse is sent on an Arduino digital pin and the echo is received on an Arduino digital pin.
 */
 
+#ifndef SENSORS_H
+#define SENSORS_H
+
 /// readMoistureSensor()
 ///
 /// Function to read the value returned by the soil moisture sensor.
@@ -68,3 +71,5 @@ uint16_t readLuminositySensor(void);
 /// returns: (bool) true if the water level is lower than 1 cm, false otherwise
 ///
 bool isWaterLevelLow(void);
+
+#endif // SENSORS_H

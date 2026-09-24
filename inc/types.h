@@ -4,6 +4,9 @@
   Header file containing the custom types used by the project.
  */
 
+#ifndef TYPES_H
+#define TYPES_H
+
 /*--------------------------------
  * Dependencies
  *--------------------------------*/
@@ -54,3 +57,5 @@ typedef struct {
     uint32_t data;
   } content;
 } oled_msg;
+
+#endif // TYPES_H

@@ -4,7 +4,10 @@
   Header file containing the custom macros used by the project.
  */
 
- /*--------------------------------
+#ifndef MACROS_H
+#define MACROS_H
+
+/*--------------------------------
  * Dependencies
  *--------------------------------*/
 #include <cstring>
@@ -32,3 +35,5 @@
 #else
 #define D_TRACE(s)
 #endif // DEBUG_MODE
+
+#endif // MACROS_H

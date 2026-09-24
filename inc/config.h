@@ -4,6 +4,9 @@
   Header file containing the constant definitions, the Arduino board pin layout.
  */
 
+#ifndef CONFIG_H
+#define CONFIG_H
+
 /*--------------------------------
  * Constant definitions
  *--------------------------------*/
@@ -59,3 +62,5 @@
 #define SCREEN_I2C_ADDR         0x3C        
 // Distance in mm from the base of the sensor to the bottom of the water tank
 #define WATER_SENSOR_DISTANCE   120
+
+#endif // CONFIG_H
