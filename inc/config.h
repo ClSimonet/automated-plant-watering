@@ -26,11 +26,13 @@
 #define PIN_MOIST_SENSOR    A0
 #define PIN_LUM_SENSOR      A2
 #define PIN_ECHO            D8
+#define PIN_ESP32_ECHO      GPIO_NUM_17
 
 //--- Output pins ---//
 // The relay directly commands the water pump
 #define PIN_RELAY           D12
 #define PIN_TRIG            D6
+#define PIN_ESP32_TRIG      GPIO_NUM_9
 
 //--- I²C pins ---//
 // If I2C_USE_DEFAULT_BUS is defined, use different pins to communicate with
