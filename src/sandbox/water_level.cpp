@@ -72,9 +72,7 @@ void setup() {
   digitalWrite(PIN_RELAY, HIGH);
 
   // Set up the serial port used to display the value on the screen
-  Serial.begin(9600);
-  // Wait for the serial port initialization
-  delay(2000);
+  initLogger(9600);
 
   D_TRACE("Setup done.");
 }
@@ -115,7 +113,7 @@ void loop() {
   if (!duration) {
     // Did not detect an echo signal. Consider the water level to be low so
     // the user will check what might be wrong
-    Serial.println("pulseIn() returned 0. Something went wrong.");
+    D_TRACE("pulseIn() returned 0. Something went wrong.");
   } else {
     // Distance between the sensor and the water
     distance = duration / 2 * 0.34;
@@ -130,9 +128,9 @@ void loop() {
   }
 
   // Send the value through the serial port
-  Serial.println("duration (us, one way): " + String(duration));
-  Serial.println("distance (mm): " + String(distance));
-  Serial.println("water level (mm): " + String(waterLevel));
+  D_TRACE("duration (us, one way): " + String(duration));
+  D_TRACE("distance (mm): " + String(distance));
+  D_TRACE("water level (mm): " + String(waterLevel) + "\n");
   delay(1000);
 }
 

@@ -12,6 +12,7 @@
  *--------------------------------*/
 #include <cstring>
 #include <Arduino.h>
+#include "utils/logger.h"
 
 /*--------------------------------
  * Macro definitions
@@ -22,17 +23,12 @@
   strrchr(__FILE__, '\\') + 1 : __FILE__)
 
 #ifdef DEBUG_MODE
-#define D_TRACE(s) do {         \
-  Serial.print("[DEBUG] ");  \
-  Serial.print(__FILENAME__);   \
-  Serial.print("@");         \
-  Serial.print(__LINE__);       \
-  Serial.print(": {");       \
-  Serial.print(__func__);       \
-  Serial.print("} ");        \
-  Serial.println(s);            \
-} while(0)
-#else
+#if ENV_FREERTOS == 1
+#define D_TRACE(s) printLogSafe(s, __FILENAME__, __LINE__, __func__)
+#else // ENV_FREERTOS == 0 (i.e. ENV_BARE_METAL == 1)
+#define D_TRACE(s) printLog(s, __FILENAME__, __LINE__, __func__)
+#endif // ENV_FREERTOS == 1
+#else // DEBUG_MODE
 #define D_TRACE(s)
 #endif // DEBUG_MODE
 

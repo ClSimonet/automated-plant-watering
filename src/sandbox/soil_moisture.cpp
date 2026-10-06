@@ -48,9 +48,8 @@
 ///
 void setup() {
   // Set up the serial port used to display the value on the screen
-  Serial.begin(9600);
-  // Wait for the serial port to open
-  delay(2000);
+  initLogger(9600);
+  D_TRACE("Serial port open");
 }
 
 /// loop()
@@ -69,6 +68,6 @@ void loop() {
   perc = map(val, 1100, 3500, 0, 100);
   // Send the value through the serial port
   D_TRACE("Sensor value: " + String(val));
-  D_TRACE("Expressed in percentage: " + String(perc));
+  D_TRACE("Expressed in percentage: " + String(perc) + "\n");
   delay(1000);
 }

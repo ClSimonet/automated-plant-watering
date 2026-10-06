@@ -103,9 +103,7 @@ void watering_plant_display_oled(oled_msg msg);
 ///
 void setup() {
   // Set up the serial port used to display the value on the screen
-  Serial.begin(9600);
-  // Wait for the serial port initialization
-  delay(2000);
+  initLogger(9600);
 
   // Initialize the I²C bus
   Wire.begin();

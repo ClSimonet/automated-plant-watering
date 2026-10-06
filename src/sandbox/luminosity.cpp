@@ -45,9 +45,7 @@
 ///
 void setup(void) {
   // Set up the serial port used to display debug traces
-  Serial.begin(9600);
-  // Wait for the serial port initialization
-  delay(2000);
+  initLogger(9600);
   D_TRACE("Debug traces enabled.");
 }
 
@@ -69,13 +67,13 @@ void loop(void) {
   val = analogRead(PIN_LUM_SENSOR);
   D_TRACE("Sensor value read.");
   // Send the value through the serial port
-  Serial.println("Sensor value: " + String(val));
+  D_TRACE("Sensor value: " + String(val));
   if (val > LIGHT_THRESHOLD_GREAT) {
-    Serial.println("LIGHTMAXXING!");
+    D_TRACE("LIGHTMAXXING!\n");
   } else if (val > LIGHT_THRESHOLD_LOW) {
-    Serial.println("LIGHT OK");
+    D_TRACE("LIGHT OK\n");
   } else {
-    Serial.println("LIGHT LOW...");
+    D_TRACE("LIGHT LOW...\n");
   } 
   delay(1000);
 }
