@@ -15,7 +15,7 @@
 #include "types.h"
 
 /*--------------------------------
- * Variable declarations
+ * Global variable declarations
  *--------------------------------*/
 // OLED screen:
 //   (width_pixel, height_pixel, I²C bus to use, no reset pin)
@@ -24,6 +24,10 @@ static Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 #else
 static Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire1, -1);
 #endif // I2C_USE_DEFAULT_BUS
+
+static String persStatusText;
+static String persMoistureText;
+static String persLuminosityText;
 
 /*--------------------------------
  * Function definitions
@@ -58,22 +62,20 @@ int initOledScreen(void) {
   return 1;
 }
 
-/// displayOled()
+/// buildOledMessage()
 ///
-/// Function to display a message on the OLED screen.
+/// Function to build the information to be displayed on the OLED screen.
+/// displayOled() will have to be called to actually display the information on
+/// the screen.
 /// Read the function declaration in display.h for more details.
 ///
 /// parameters: 
-///   - msg (oled_msg): Contains the information to be displayed on the
-///     screen. See oled_msg type definition.
+///   - msg (oled_msg): Contains information to build the message. See 
+///     oled_msg type definition.
 ///
 /// returns: void
 ///
-void displayOled(oled_msg msg) {
-  static String persStatusText;
-  static String persMoistureText;
-  static String persLuminosityText;
-
+void buildOledMessage(oled_msg msg) {
   D_TRACE("displayOled() called with context " + String(msg.ctx) + " to print: ");
 
   // Update the persistent messages that will be displayed
@@ -128,7 +130,20 @@ void displayOled(oled_msg msg) {
       D_TRACE("Context = " + String(msg.ctx));
       break;
   }
+}
 
+/// displayOled()
+///
+/// Function to display a message on the OLED screen.
+/// Read the function declaration in display.h for more details.
+///
+/// parameters: 
+///   - msg (oled_msg): Contains the information to be displayed on the
+///     screen. See oled_msg type definition.
+///
+/// returns: void
+///
+void displayOled(void) {
   // Now build the whole text to display 
   oled.clearDisplay();
   oled.setTextColor(SSD1306_WHITE);

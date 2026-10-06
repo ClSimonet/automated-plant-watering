@@ -16,7 +16,7 @@
  *--------------------------------*/
 #include "types.h"
 
-/// displayOled()
+/// initOledScreen()
 ///
 /// Function to initialize the OLED screen.
 /// First, if the user required to use a different bus than the default one 
@@ -32,11 +32,27 @@
 ///
 int initOledScreen(void);
 
+/// buildOledMessage()
+///
+/// Function to build the information to be displayed on the OLED screen.
+/// It saves the information into global variables. The content of these
+/// variables will be displayed on the screen by displayOled(). 
+///
+/// parameters: 
+///   - msg (oled_msg): Contains the information to be displayed on the
+///     screen. See oled_msg type definition.
+///
+/// returns: void
+///
+void buildOledMessage(oled_msg msg);
+
 /// displayOled()
 ///
 /// Function to display a message on the OLED screen.
+/// It loads the content of the global variables filled by buildOledMessage()
+/// into the OLED buffer properly then display it on the OLED screen.
 /// Every time this function is called, it will regenerate the whole screen to
-/// display (not only the information contained in `msg`). That is because
+/// display (even if not all the information has changed). That is because
 /// clearDisplay() is needed to get rid of the old information but it
 /// completely empties the OLED screen buffer thus all the other information
 /// would be lost. To avoid that, every information received is saved into a
@@ -47,12 +63,10 @@ int initOledScreen(void);
 ///   information. Even though the current solution is less efficient, it was
 ///   deemed more comprehensible. This might be a point of optimization.
 ///
-/// parameters: 
-///   - msg (oled_msg): Contains the information to be displayed on the
-///     screen. See oled_msg type definition.
+/// parameters: none
 ///
 /// returns: void
 ///
-void displayOled(oled_msg msg);
+void displayOled(void);
 
 #endif // DISPLAY_H
