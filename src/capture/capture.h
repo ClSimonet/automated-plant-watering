@@ -49,7 +49,8 @@ void initCaptureModule(void);
 ///
 /// parameters: none
 ///
-/// returns: void
-void measureWaterLevel(void);
+/// returns: (float) the distance in mm between the sensor and the water, 0 if
+/// the measurement failed
+float measureWaterLevel(void);
 
 #endif // CAPTURE_H

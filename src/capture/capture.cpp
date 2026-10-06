@@ -76,7 +76,11 @@ static bool echoCallback(mcpwm_cap_channel_handle_t capChannel,
 /// returns: void
 static void sendTrigSignal(void)
 {
-    // The pulse consist of a signal being HIGH for 10 us
+    // The pulse consist of a signal being HIGH for 10 us.
+    // Note: FreeRTOS does not allow to set up timing shorter than the
+    // millisecond, but in this precise case it is acceptable to use
+    // esp_rom_delay_us() because the timing is short enough to not influence
+    // too much the FreeRTOS scheduler.
     gpio_set_level(PIN_ESP32_TRIG, 1);
     esp_rom_delay_us(10);
     gpio_set_level(PIN_ESP32_TRIG, 0);
@@ -182,16 +186,15 @@ void initCaptureModule(void)
 ///
 /// parameters: none
 ///
-/// returns: void
-void measureWaterLevel(void)
+/// returns: (float) the distance in mm between the sensor and the water, 0 if
+/// the measurement failed
+float measureWaterLevel(void)
 {
     BaseType_t notifStatus = pdFALSE;
     uint32_t ticksNum = 0;
     float duration = 0;
-    float distance = 0;
-    float waterLevel = 0;
 
-    // trigger the sensor to start a new sample
+    // Trigger the sensor to start a new sample
     sendTrigSignal();
     // Wait until the echo is received. The ISR will notify this task.
     notifStatus = xTaskNotifyWait(0x00, 
@@ -206,10 +209,9 @@ void measureWaterLevel(void)
         //    continue;
         //}
         // Convert the duration of the pulse into distance
-        distance = (float) duration / 2 * 0.34;
-        waterLevel = WATER_SENSOR_DISTANCE - distance;
-        D_TRACE("distance (mm): " + String(distance) + "\twater level (mm): " + String(waterLevel));
+        return (float) duration / 2 * 0.34;
     } else {
         D_TRACE("Never received the Capture callback notification");
+        return 0;
     }
 }
